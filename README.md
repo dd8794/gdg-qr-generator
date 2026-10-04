@@ -45,7 +45,8 @@ Create QR codes for URLs, plain text, emails, phone numbers, and Wi-Fi networks,
 
 ### QR Code Customization
 
-![QR Code Customization](screensho![customization.png](../../Desktop/customization.png)ts/customization.png)
+![QR Code Customization](screenshots/customization.png)
+
 
 ### Generated QR Code
 
