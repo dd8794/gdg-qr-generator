@@ -17,7 +17,9 @@ Create QR codes for URLs, plain text, emails, phone numbers, and Wi-Fi networks,
 - 🛡️ Choose error correction level
 - ⚡ Quick presets:
     - Classic
-    - Dark
+ 
+
+   - Dark
     - High Contrast
 - 📥 Download QR codes as PNG
 - 🕘 Recent QR code history
@@ -41,13 +43,14 @@ Create QR codes for URLs, plain text, emails, phone numbers, and Wi-Fi networks,
 
 ## 📸 Screenshots
 
-### QR Code Generator
+### QR Code Customization
 
-_Add your project screenshot here._
+![QR Code Customization](screenshots/customization.png)
 
-### QR Code History
+### Generated QR Code
 
-_Add your project screenshot here._
+![Generated QR Code](screenshots/generated-qr.png)
+
 
 ## 💻 Run Locally
 
