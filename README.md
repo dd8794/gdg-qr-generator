@@ -39,7 +39,7 @@ Create QR codes for URLs, plain text, emails, phone numbers, and Wi-Fi networks,
 
 ## 🌐 Live Demo
 
-👉 **[Open the QR Code Generator](https://gdg-qr-generator-alkx.vercel.app/)**
+👉 [Open the QR Code Generator](https://gdg-qr-generator-ten.vercel.app/)
 
 ## 📸 Screenshots
 
