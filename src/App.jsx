@@ -1,1002 +1,1558 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 
+const STORAGE_KEY = "gdg-qr-history-v2";
+
+const DEFAULT_SETTINGS = {
+    size: 280,
+    fgColor: "#111827",
+    bgColor: "#ffffff",
+    level: "H",
+    margin: 4,
+};
+
+const PRESETS = {
+    Classic: {
+        size: 280,
+        fgColor: "#111827",
+        bgColor: "#ffffff",
+        level: "H",
+        margin: 4,
+    },
+    Dark: {
+        size: 280,
+        fgColor: "#ffffff",
+        bgColor: "#111827",
+        level: "H",
+        margin: 4,
+    },
+    "High Contrast": {
+        size: 320,
+        fgColor: "#000000",
+        bgColor: "#ffffff",
+        level: "H",
+        margin: 6,
+    },
+};
+
+const TYPE_LABELS = {
+    url: "URL",
+    text: "Plain Text",
+    email: "Email",
+    phone: "Phone Number",
+    wifi: "Wi-Fi",
+};
+
+function escapeWifiValue(value) {
+    return String(value)
+        .replace(/\\/g, "\\\\")
+        .replace(/;/g, "\\;")
+        .replace(/,/g, "\\,")
+        .replace(/:/g, "\\:");
+}
+
+function buildWifiString(ssid, password, security, hidden) {
+    return `WIFI:T:${security};S:${escapeWifiValue(ssid)};P:${escapeWifiValue(
+        password
+    )};H:${hidden ? "true" : "false"};;`;
+}
+
+function getInitialHistory() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        return saved ? JSON.parse(saved) : [];
+    } catch {
+        return [];
+    }
+}
+
 function App() {
+    const qrCanvasRef = useRef(null);
+
     const [type, setType] = useState("url");
 
+    const [url, setUrl] = useState("");
     const [text, setText] = useState("");
+
+    const [email, setEmail] = useState("");
+    const [emailSubject, setEmailSubject] = useState("");
+    const [emailBody, setEmailBody] = useState("");
+
     const [phone, setPhone] = useState("");
 
-    const [wifiName, setWifiName] = useState("");
+    const [wifiSSID, setWifiSSID] = useState("");
     const [wifiPassword, setWifiPassword] = useState("");
     const [wifiSecurity, setWifiSecurity] = useState("WPA");
+    const [wifiHidden, setWifiHidden] = useState(false);
 
-    const [qrText, setQrText] = useState("");
+    const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+
+    const [history, setHistory] = useState(getInitialHistory);
     const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
+    const [selectedPreset, setSelectedPreset] = useState("Classic");
 
-    const [size, setSize] = useState(220);
-    const [foreground, setForeground] = useState("#000000");
-    const [background, setBackground] = useState("#ffffff");
-    const [margin, setMargin] = useState(2);
-    const [errorLevel, setErrorLevel] = useState("M");
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    }, [history]);
 
-    const [history, setHistory] = useState(() => {
-        const savedHistory = localStorage.getItem("qrHistory");
+    const rawValue = useMemo(() => {
+        switch (type) {
+            case "url":
+                return url.trim();
 
-        return savedHistory ? JSON.parse(savedHistory) : [];
-    });
+            case "text":
+                return text;
 
-    function changeType(newType) {
-        setType(newType);
+            case "email": {
+                const params = new URLSearchParams();
 
-        setText("");
-        setPhone("");
-        setWifiName("");
-        setWifiPassword("");
+                if (emailSubject.trim()) {
+                    params.set("subject", emailSubject);
+                }
 
-        setQrText("");
-        setError("");
-    }
+                if (emailBody.trim()) {
+                    params.set("body", emailBody);
+                }
 
-    function generateQR() {
-        setError("");
+                const query = params.toString();
 
-        let value = "";
+                return `mailto:${email.trim()}${query ? `?${query}` : ""}`;
+            }
 
-        // URL
+            case "phone":
+                return phone.trim() ? `tel:${phone.trim()}` : "";
+
+            case "wifi":
+                if (!wifiSSID.trim()) return "";
+
+                return buildWifiString(
+                    wifiSSID.trim(),
+                    wifiPassword,
+                    wifiSecurity,
+                    wifiHidden
+                );
+
+            default:
+                return "";
+        }
+    }, [
+        type,
+        url,
+        text,
+        email,
+        emailSubject,
+        emailBody,
+        phone,
+        wifiSSID,
+        wifiPassword,
+        wifiSecurity,
+        wifiHidden,
+    ]);
+
+    function validate() {
+        const cleanUrl = url.trim();
+        const cleanEmail = email.trim();
+        const cleanPhone = phone.trim();
+        const cleanSSID = wifiSSID.trim();
+
         if (type === "url") {
-            if (text.trim() === "") {
-                setQrText("");
-                setError("Please enter a URL.");
-                return;
+            if (!cleanUrl) {
+                return "Please enter a URL.";
             }
 
             try {
-                const url = new URL(text);
+                const parsed = new URL(cleanUrl);
 
-                if (
-                    url.protocol !== "http:" &&
-                    url.protocol !== "https:"
-                ) {
-                    setQrText("");
-                    setError("Please enter a valid URL.");
-                    return;
+                if (!["http:", "https:"].includes(parsed.protocol)) {
+                    return "Please enter a valid HTTP or HTTPS URL.";
                 }
             } catch {
-                setQrText("");
-                setError(
-                    "Please enter a valid URL, like https://google.com"
-                );
-                return;
+                return "Please enter a valid URL, for example https://google.com";
             }
-
-            value = text;
         }
 
-        // Plain Text
         if (type === "text") {
-            if (text.trim() === "") {
-                setQrText("");
-                setError("Please enter some text.");
-                return;
+            if (!text.trim()) {
+                return "Please enter some text.";
             }
-
-            value = text;
         }
 
-        // Email
         if (type === "email") {
-            if (text.trim() === "") {
-                setQrText("");
-                setError("Please enter an email address.");
-                return;
+            if (!cleanEmail) {
+                return "Please enter an email address.";
             }
 
-            if (!text.includes("@") || !text.includes(".")) {
-                setQrText("");
-                setError("Please enter a valid email address.");
-                return;
-            }
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-            value = `mailto:${text}`;
+            if (!emailPattern.test(cleanEmail)) {
+                return "Please enter a valid email address.";
+            }
         }
 
-        // Phone
         if (type === "phone") {
-            if (phone.trim() === "") {
-                setQrText("");
-                setError("Please enter a phone number.");
-                return;
+            if (!cleanPhone) {
+                return "Please enter a phone number.";
             }
 
-            const cleanedPhone = phone.replace(/[\s()-]/g, "");
+            const digits = cleanPhone.replace(/\D/g, "");
 
-            if (!/^\+?[0-9]{7,15}$/.test(cleanedPhone)) {
-                setQrText("");
-                setError("Please enter a valid phone number.");
-                return;
+            if (digits.length < 7) {
+                return "Please enter a valid phone number.";
             }
-
-            value = `tel:${cleanedPhone}`;
         }
 
-        // Wi-Fi
         if (type === "wifi") {
-            if (wifiName.trim() === "") {
-                setQrText("");
-                setError("Please enter the Wi-Fi network name.");
-                return;
+            if (!cleanSSID) {
+                return "Please enter the Wi-Fi network name (SSID).";
             }
 
-            if (
-                wifiSecurity !== "nopass" &&
-                wifiPassword.trim() === ""
-            ) {
-                setQrText("");
-                setError("Please enter the Wi-Fi password.");
-                return;
+            if (wifiSecurity !== "nopass" && !wifiPassword) {
+                return "Please enter the Wi-Fi password.";
             }
-
-            value =
-                `WIFI:T:${wifiSecurity};` +
-                `S:${wifiName};` +
-                `P:${wifiPassword};;`;
         }
 
-        setQrText(value);
-
-        const displayValue =
-            type === "phone"
-                ? phone
-                : type === "wifi"
-                    ? wifiName
-                    : text;
-
-        const newItem = {
-            id: Date.now(),
-            type: type,
-            value: displayValue,
-            createdAt: new Date().toLocaleString(),
-        };
-
-        const updatedHistory = [newItem, ...history].slice(0, 10);
-
-        setHistory(updatedHistory);
-
-        localStorage.setItem(
-            "qrHistory",
-            JSON.stringify(updatedHistory)
-        );
+        return "";
     }
 
-    function downloadQR() {
-        const canvas = document.querySelector("canvas");
+    const validationError = validate();
+    const qrIsValid = !validationError && Boolean(rawValue);
 
-        if (!canvas) {
-            alert("Please generate a QR code first!");
+    function updateSetting(key, value) {
+        setSettings((current) => ({
+            ...current,
+            [key]: value,
+        }));
+
+        setSelectedPreset("Custom");
+        setNotice("");
+    }
+
+    function applyPreset(name) {
+        setSettings(PRESETS[name]);
+        setSelectedPreset(name);
+        setNotice(`${name} preset applied.`);
+        setError("");
+    }
+
+    function handleTypeChange(newType) {
+        setType(newType);
+        setError("");
+        setNotice("");
+    }
+
+    function saveToHistory() {
+        const currentError = validate();
+
+        if (currentError) {
+            setError(currentError);
+            setNotice("");
             return;
         }
 
-        const image = canvas.toDataURL("image/png");
+        const item = {
+            id: Date.now(),
+            type,
+            label: TYPE_LABELS[type],
+            value: rawValue,
+            settings: { ...settings },
+            createdAt: new Date().toLocaleString(),
+            displayValue: getDisplayValue(),
+        };
 
-        const link = document.createElement("a");
+        setHistory((current) => {
+            const withoutDuplicate = current.filter(
+                (entry) => entry.value !== item.value || entry.type !== item.type
+            );
 
-        link.href = image;
-        link.download = "my-qr-code.png";
+            return [item, ...withoutDuplicate].slice(0, 10);
+        });
 
-        link.click();
+        setNotice("QR code saved to Recent QR Codes.");
+        setError("");
+    }
+
+    function getDisplayValue() {
+        switch (type) {
+            case "url":
+                return url.trim();
+
+            case "text":
+                return text.trim();
+
+            case "email":
+                return email.trim();
+
+            case "phone":
+                return phone.trim();
+
+            case "wifi":
+                return wifiSSID.trim();
+
+            default:
+                return "";
+        }
+    }
+
+    function reuseItem(item) {
+        setType(item.type);
+        setSettings(item.settings || DEFAULT_SETTINGS);
+        setSelectedPreset("Custom");
+
+        switch (item.type) {
+            case "url":
+                setUrl(item.value);
+                break;
+
+            case "text":
+                setText(item.value);
+                break;
+
+            case "email": {
+                const mail = item.value.replace(/^mailto:/, "");
+                const [address, queryString] = mail.split("?");
+
+                setEmail(address);
+
+                if (queryString) {
+                    const params = new URLSearchParams(queryString);
+                    setEmailSubject(params.get("subject") || "");
+                    setEmailBody(params.get("body") || "");
+                } else {
+                    setEmailSubject("");
+                    setEmailBody("");
+                }
+
+                break;
+            }
+
+            case "phone":
+                setPhone(item.value.replace(/^tel:/, ""));
+                break;
+
+            case "wifi": {
+                const match = item.value.match(
+                    /^WIFI:T:([^;]*);S:((?:\\.|[^;])*)?;P:((?:\\.|[^;])*)?;H:(true|false);;$/
+                );
+
+                if (match) {
+                    setWifiSecurity(match[1] || "WPA");
+                    setWifiSSID((match[2] || "").replace(/\\([\\;,:])/g, "$1"));
+                    setWifiPassword((match[3] || "").replace(/\\([\\;,:])/g, "$1"));
+                    setWifiHidden(match[4] === "true");
+                } else {
+                    setWifiSSID(item.displayValue || "");
+                }
+
+                break;
+            }
+
+            default:
+                break;
+        }
+
+        setError("");
+        setNotice("Recent QR code loaded.");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function deleteHistoryItem(id) {
+        setHistory((current) => current.filter((item) => item.id !== id));
     }
 
     function clearHistory() {
         setHistory([]);
-        localStorage.removeItem("qrHistory");
+        setNotice("Recent QR codes cleared.");
     }
 
-    function applyPreset(preset) {
-        if (preset === "classic") {
-            setForeground("#000000");
-            setBackground("#ffffff");
+    function downloadPNG() {
+        if (!qrIsValid) {
+            setError(validationError || "Please enter valid information first.");
+            return;
         }
 
-        if (preset === "dark") {
-            setForeground("#ffffff");
-            setBackground("#111111");
+        const canvas = qrCanvasRef.current;
+
+        if (!canvas) {
+            setError("QR preview is not ready yet. Please try again.");
+            return;
         }
 
-        if (preset === "contrast") {
-            setForeground("#000000");
-            setBackground("#ffff00");
+        const link = document.createElement("a");
+        link.download = `gdg-qr-${type}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+
+        setNotice("PNG downloaded successfully.");
+        setError("");
+    }
+
+    function copyQRText() {
+        if (!qrIsValid) {
+            setError(validationError || "Please enter valid information first.");
+            return;
         }
+
+        navigator.clipboard
+            ?.writeText(rawValue)
+            .then(() => {
+                setNotice("QR data copied to clipboard.");
+                setError("");
+            })
+            .catch(() => {
+                setError("Clipboard access is unavailable in this browser.");
+            });
     }
 
-    function getTypeIcon(itemType) {
-        if (itemType === "url") return "🔗";
-        if (itemType === "email") return "📧";
-        if (itemType === "phone") return "📱";
-        if (itemType === "wifi") return "📶";
+    const contrastWarning = useMemo(() => {
+        function hexToRgb(hex) {
+            const clean = hex.replace("#", "");
 
-        return "📝";
+            if (clean.length !== 6) return null;
+
+            return {
+                r: parseInt(clean.substring(0, 2), 16),
+                g: parseInt(clean.substring(2, 4), 16),
+                b: parseInt(clean.substring(4, 6), 16),
+            };
+        }
+
+        function luminance(hex) {
+            const rgb = hexToRgb(hex);
+
+            if (!rgb) return 0;
+
+            const values = [rgb.r, rgb.g, rgb.b].map((value) => {
+                const channel = value / 255;
+
+                return channel <= 0.03928
+                    ? channel / 12.92
+                    : Math.pow((channel + 0.055) / 1.055, 2.4);
+            });
+
+            return (
+                0.2126 * values[0] +
+                0.7152 * values[1] +
+                0.0722 * values[2]
+            );
+        }
+
+        const foreground = luminance(settings.fgColor);
+        const background = luminance(settings.bgColor);
+
+        const lighter = Math.max(foreground, background);
+        const darker = Math.min(foreground, background);
+
+        const ratio = (lighter + 0.05) / (darker + 0.05);
+
+        if (ratio < 4.5) {
+            return "Low contrast may make this QR code difficult to scan. Choose darker foreground and lighter background colors.";
+        }
+
+        if (settings.margin < 2) {
+            return "A very small margin can reduce scan reliability. Consider using a margin of 2 or more.";
+        }
+
+        if (settings.size < 180) {
+            return "A small QR code may be harder to scan, especially on mobile. Consider using 200px or larger.";
+        }
+
+        if (settings.level === "L") {
+            return "Error correction is set to Low. For customized QR codes, Medium or High is safer.";
+        }
+
+        return "";
+    }, [settings]);
+
+    const styles = `
+    * {
+      box-sizing: border-box;
     }
 
-    function getTypeName(itemType) {
-        if (itemType === "url") return "URL";
-        if (itemType === "email") return "Email";
-        if (itemType === "phone") return "Phone";
-        if (itemType === "wifi") return "Wi-Fi";
-
-        return "Text";
+    :root {
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      color: #111827;
+      background: #f5f7fb;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
     }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(circle at top left, rgba(99, 102, 241, 0.12), transparent 32%),
+        radial-gradient(circle at top right, rgba(14, 165, 233, 0.10), transparent 28%),
+        #f5f7fb;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      min-height: 100vh;
+      padding: 28px 18px 60px;
+    }
+
+    .container {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+
+    .hero {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #4338ca;
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(32px, 5vw, 52px);
+      letter-spacing: -1.8px;
+      line-height: 1.05;
+    }
+
+    .hero p {
+      max-width: 650px;
+      margin: 14px auto 0;
+      color: #667085;
+      line-height: 1.65;
+      font-size: 16px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid #e5e7eb;
+      border-radius: 22px;
+      box-shadow: 0 18px 55px rgba(15, 23, 42, 0.08);
+      padding: 22px;
+    }
+
+    .card h2 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: -0.4px;
+    }
+
+    .card-subtitle {
+      color: #667085;
+      font-size: 14px;
+      margin: 7px 0 20px;
+      line-height: 1.5;
+    }
+
+    .type-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .type-button {
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      color: #475467;
+      padding: 11px 8px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      transition: 0.18s ease;
+    }
+
+    .type-button:hover {
+      border-color: #a5b4fc;
+      transform: translateY(-1px);
+    }
+
+    .type-button.active {
+      color: #fff;
+      background: #4f46e5;
+      border-color: #4f46e5;
+      box-shadow: 0 8px 18px rgba(79, 70, 229, 0.25);
+    }
+
+    .field {
+      margin-bottom: 15px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #344054;
+    }
+
+    .field input,
+    .field textarea,
+    .field select {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 12px;
+      padding: 11px 12px;
+      outline: none;
+      background: #fff;
+      color: #101828;
+      transition: 0.18s ease;
+    }
+
+    .field textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    .field input:focus,
+    .field textarea:focus,
+    .field select:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.10);
+    }
+
+    .two-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #475467;
+      font-size: 14px;
+      margin: 8px 0 15px;
+    }
+
+    .checkbox-row input {
+      width: 16px;
+      height: 16px;
+    }
+
+    .customization {
+      border-top: 1px solid #eaecf0;
+      padding-top: 20px;
+      margin-top: 18px;
+    }
+
+    .customization-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .customization-header span {
+      font-size: 12px;
+      color: #667085;
+      font-weight: 700;
+    }
+
+    .range-row {
+      display: grid;
+      grid-template-columns: 1fr 70px;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .range-row input[type="range"] {
+      width: 100%;
+      accent-color: #4f46e5;
+    }
+
+    .range-value {
+      border: 1px solid #e4e7ec;
+      background: #f9fafb;
+      border-radius: 9px;
+      padding: 7px 8px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .color-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+
+    .color-control {
+      border: 1px solid #e4e7ec;
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .color-control label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 7px;
+      font-size: 12px;
+      font-weight: 800;
+      color: #475467;
+    }
+
+    .color-control input[type="color"] {
+      width: 100%;
+      height: 40px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .preset-button {
+      border: 1px solid #e4e7ec;
+      background: #fff;
+      border-radius: 11px;
+      padding: 10px 8px;
+      color: #475467;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .preset-button.active {
+      border-color: #818cf8;
+      background: #eef2ff;
+      color: #4338ca;
+    }
+
+    .error-box,
+    .warning-box,
+    .success-box {
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-top: 15px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .error-box {
+      background: #fef2f2;
+      color: #b42318;
+      border: 1px solid #fecaca;
+    }
+
+    .warning-box {
+      background: #fffaeb;
+      color: #92400e;
+      border: 1px solid #fedf89;
+    }
+
+    .success-box {
+      background: #ecfdf3;
+      color: #027a48;
+      border: 1px solid #abefc6;
+    }
+
+    .preview-card {
+      position: sticky;
+      top: 18px;
+    }
+
+    .preview-area {
+      min-height: 370px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+      border-radius: 18px;
+      background:
+        linear-gradient(45deg, #f8fafc 25%, transparent 25%),
+        linear-gradient(-45deg, #f8fafc 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #f8fafc 75%),
+        linear-gradient(-45deg, transparent 75%, #f8fafc 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+      border: 1px solid #eaecf0;
+      overflow: auto;
+    }
+
+    .qr-shell {
+      padding: 12px;
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      max-width: 100%;
+    }
+
+    .empty-preview {
+      text-align: center;
+      color: #667085;
+      max-width: 260px;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .preview-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .primary-button,
+    .secondary-button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-weight: 800;
+      font-size: 14px;
+      transition: 0.18s ease;
+    }
+
+    .primary-button {
+      background: #4f46e5;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(79, 70, 229, 0.22);
+    }
+
+    .primary-button:hover {
+      background: #4338ca;
+      transform: translateY(-1px);
+    }
+
+    .secondary-button {
+      background: #f2f4f7;
+      color: #344054;
+    }
+
+    .secondary-button:hover {
+      background: #e4e7ec;
+    }
+
+    .primary-button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .preview-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 14px;
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .history {
+      margin-top: 20px;
+    }
+
+    .history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .history-header h2 {
+      margin: 0;
+    }
+
+    .clear-button {
+      border: 0;
+      background: transparent;
+      color: #b42318;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 6px;
+    }
+
+    .history-list {
+      display: grid;
+      gap: 9px;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid #eaecf0;
+      border-radius: 12px;
+      padding: 11px;
+      background: #fff;
+    }
+
+    .history-info {
+      min-width: 0;
+    }
+
+    .history-type {
+      color: #4338ca;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .history-value {
+      margin-top: 4px;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-date {
+      margin-top: 3px;
+      color: #98a2b3;
+      font-size: 11px;
+    }
+
+    .history-actions {
+      display: flex;
+      gap: 5px;
+    }
+
+    .small-button {
+      border: 1px solid #e4e7ec;
+      background: #fff;
+      color: #475467;
+      border-radius: 9px;
+      padding: 7px 9px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .small-button:hover {
+      background: #f9fafb;
+    }
+
+    .footer-note {
+      text-align: center;
+      color: #98a2b3;
+      font-size: 12px;
+      margin-top: 22px;
+    }
+
+    @media (max-width: 900px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .preview-card {
+        position: static;
+      }
+
+      .type-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    @media (max-width: 560px) {
+      .app {
+        padding: 18px 10px 40px;
+      }
+
+      .card {
+        padding: 16px;
+        border-radius: 17px;
+      }
+
+      .type-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .two-columns,
+      .color-row {
+        grid-template-columns: 1fr;
+      }
+
+      .preset-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .preview-actions {
+        grid-template-columns: 1fr;
+      }
+
+      .preview-area {
+        min-height: 300px;
+        padding: 12px;
+      }
+
+      .hero h1 {
+        font-size: 34px;
+      }
+
+      .history-item {
+        grid-template-columns: 1fr;
+      }
+
+      .history-actions {
+        width: 100%;
+      }
+
+      .history-actions .small-button {
+        flex: 1;
+      }
+    }
+  `;
 
     return (
         <>
-            <style>{`
-        * {
-          box-sizing: border-box;
-        }
+            <style>{styles}</style>
 
-        body {
-          margin: 0;
-          font-family: Arial, sans-serif;
-          background: #f4f7fb;
-          color: #111827;
-        }
+            <main className="app">
+                <div className="container">
+                    <header className="hero">
+                        <div className="badge">⚡ GDG on Campus SRM · QR Designer</div>
 
-        button,
-        input,
-        select {
-          font: inherit;
-        }
-
-        button {
-          cursor: pointer;
-        }
-
-        .app {
-          min-height: 100vh;
-          padding: 40px 20px;
-        }
-
-        .container {
-          width: 100%;
-          max-width: 700px;
-          margin: 0 auto;
-        }
-
-        .header {
-          text-align: center;
-          margin-bottom: 30px;
-        }
-
-        .logo {
-          width: 60px;
-          height: 60px;
-          margin: 0 auto 15px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 16px;
-          background: #111827;
-          color: white;
-          font-size: 20px;
-          font-weight: 800;
-        }
-
-        .header h1 {
-          margin: 0;
-          font-size: 36px;
-        }
-
-        .header p {
-          margin-top: 10px;
-          color: #6b7280;
-          font-size: 16px;
-        }
-
-        .card,
-        .result-card,
-        .history-card {
-          background: white;
-          border: 1px solid #e5e7eb;
-          border-radius: 20px;
-          padding: 28px;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
-        }
-
-        .form-group {
-          margin-bottom: 20px;
-        }
-
-        .form-group label,
-        .color-grid label {
-          display: block;
-          margin-bottom: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          color: #374151;
-        }
-
-        .form-group input,
-        .form-group select,
-        .wifi-box input,
-        .wifi-box select {
-          width: 100%;
-          padding: 13px 14px;
-          border: 1px solid #d1d5db;
-          border-radius: 10px;
-          background: white;
-          color: #111827;
-          outline: none;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus,
-        .wifi-box input:focus,
-        .wifi-box select:focus {
-          border-color: #2563eb;
-          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-        }
-
-        .wifi-box {
-          padding: 20px;
-          margin-bottom: 20px;
-          background: #f8fafc;
-          border: 1px solid #e5e7eb;
-          border-radius: 14px;
-        }
-
-        .wifi-box h3 {
-          margin-top: 0;
-          margin-bottom: 20px;
-        }
-
-        .error-message {
-          padding: 12px 14px;
-          margin-bottom: 20px;
-          border-radius: 10px;
-          background: #fee2e2;
-          color: #b91c1c;
-          font-size: 14px;
-        }
-
-        .settings-section {
-          padding: 20px;
-          margin-top: 20px;
-          background: #f8fafc;
-          border: 1px solid #e5e7eb;
-          border-radius: 14px;
-        }
-
-        .settings-section h3 {
-          margin-top: 0;
-          margin-bottom: 18px;
-        }
-
-        .preset-buttons {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-
-        .secondary-button {
-          padding: 10px 15px;
-          border: 1px solid #d1d5db;
-          border-radius: 9px;
-          background: white;
-          color: #374151;
-          font-weight: 600;
-        }
-
-        .secondary-button:hover {
-          background: #111827;
-          color: white;
-        }
-
-        .setting-row {
-          margin-bottom: 22px;
-        }
-
-        .setting-label {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 10px;
-          color: #374151;
-        }
-
-        .setting-row input[type="range"] {
-          width: 100%;
-          accent-color: #2563eb;
-        }
-
-        .color-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-bottom: 22px;
-        }
-
-        .color-grid input[type="color"] {
-          width: 100%;
-          height: 45px;
-          padding: 4px;
-          border: 1px solid #d1d5db;
-          border-radius: 10px;
-          background: white;
-          cursor: pointer;
-        }
-
-        .generate-button {
-          width: 100%;
-          margin-top: 22px;
-          padding: 15px;
-          border: none;
-          border-radius: 11px;
-          background: #111827;
-          color: white;
-          font-size: 16px;
-          font-weight: 700;
-        }
-
-        .generate-button:hover {
-          background: #2563eb;
-        }
-
-        .result-card {
-          margin-top: 20px;
-          text-align: center;
-        }
-
-        .result-card h2 {
-          margin-top: 0;
-        }
-
-        .qr-wrapper {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          padding: 25px;
-          margin: 20px auto;
-          background: #f8fafc;
-          border-radius: 15px;
-          overflow: auto;
-        }
-
-        .download-button {
-          width: 100%;
-          padding: 13px;
-          border: none;
-          border-radius: 10px;
-          background: #2563eb;
-          color: white;
-          font-weight: 700;
-        }
-
-        .download-button:hover {
-          background: #1d4ed8;
-        }
-
-        .history-card {
-          margin-top: 20px;
-        }
-
-        .history-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 15px;
-          margin-bottom: 20px;
-        }
-
-        .history-header h2 {
-          margin: 0;
-        }
-
-        .history-header p {
-          margin: 5px 0 0;
-          color: #6b7280;
-          font-size: 14px;
-        }
-
-        .clear-button {
-          padding: 8px 13px;
-          border: 1px solid #fecaca;
-          border-radius: 8px;
-          background: #fff1f2;
-          color: #be123c;
-          font-size: 13px;
-          font-weight: 600;
-        }
-
-        .clear-button:hover {
-          background: #be123c;
-          color: white;
-        }
-
-        .history-item {
-          display: flex;
-          gap: 14px;
-          padding: 15px;
-          margin-bottom: 10px;
-          border: 1px solid #e5e7eb;
-          border-radius: 12px;
-          background: #fafafa;
-        }
-
-        .history-icon {
-          width: 42px;
-          height: 42px;
-          flex-shrink: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 10px;
-          background: #eef2ff;
-          font-size: 20px;
-        }
-
-        .history-content {
-          min-width: 0;
-        }
-
-        .history-content p {
-          margin: 5px 0;
-          word-break: break-word;
-          color: #374151;
-        }
-
-        .history-content small {
-          color: #9ca3af;
-        }
-
-        footer {
-          text-align: center;
-          padding: 25px 0;
-          color: #9ca3af;
-          font-size: 13px;
-        }
-
-        @media (max-width: 600px) {
-          .app {
-            padding: 20px 12px;
-          }
-
-          .header h1 {
-            font-size: 28px;
-          }
-
-          .card,
-          .result-card,
-          .history-card {
-            padding: 20px;
-            border-radius: 16px;
-          }
-
-          .color-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .preset-buttons {
-            flex-direction: column;
-          }
-
-          .secondary-button {
-            width: 100%;
-          }
-
-          .history-header {
-            align-items: flex-start;
-          }
-
-          .qr-wrapper {
-            padding: 15px;
-          }
-        }
-      `}</style>
-
-            <div className="app">
-                <main className="container">
-
-                    <header className="header">
-                        <div className="logo">QR</div>
-
-                        <h1>QR Code Generator 🚀</h1>
+                        <h1>QR Code Generator</h1>
 
                         <p>
-                            Create, customize and download QR codes in seconds.
+                            Create, customize, preview, save and download reliable QR codes
+                            directly in your browser.
                         </p>
                     </header>
 
-                    <section className="card">
+                    <section className="workspace">
+                        <div>
+                            <div className="card">
+                                <h2>QR Information</h2>
 
-                        <div className="form-group">
-                            <label htmlFor="qr-type">
-                                QR Code Type
-                            </label>
+                                <p className="card-subtitle">
+                                    Choose a QR type and enter the information. The preview
+                                    updates automatically.
+                                </p>
 
-                            <select
-                                id="qr-type"
-                                value={type}
-                                onChange={(e) =>
-                                    changeType(e.target.value)
-                                }
-                            >
-                                <option value="url">🔗 URL</option>
-                                <option value="text">📝 Plain Text</option>
-                                <option value="email">📧 Email</option>
-                                <option value="phone">📱 Phone</option>
-                                <option value="wifi">📶 Wi-Fi</option>
-                            </select>
-                        </div>
-
-                        {(type === "url" ||
-                            type === "text" ||
-                            type === "email") && (
-                            <div className="form-group">
-                                <label htmlFor="main-input">
-                                    {type === "url"
-                                        ? "Website URL"
-                                        : type === "email"
-                                            ? "Email Address"
-                                            : "Your Text"}
-                                </label>
-
-                                <input
-                                    id="main-input"
-                                    type={
-                                        type === "email"
-                                            ? "email"
-                                            : "text"
-                                    }
-                                    value={text}
-                                    onChange={(e) =>
-                                        setText(e.target.value)
-                                    }
-                                    placeholder={
-                                        type === "url"
-                                            ? "https://example.com"
-                                            : type === "email"
-                                                ? "example@email.com"
-                                                : "Enter your text"
-                                    }
-                                />
-                            </div>
-                        )}
-
-                        {type === "phone" && (
-                            <div className="form-group">
-                                <label htmlFor="phone">
-                                    Phone Number
-                                </label>
-
-                                <input
-                                    id="phone"
-                                    type="tel"
-                                    value={phone}
-                                    onChange={(e) =>
-                                        setPhone(e.target.value)
-                                    }
-                                    placeholder="+91 9876543210"
-                                />
-                            </div>
-                        )}
-
-                        {type === "wifi" && (
-                            <div className="wifi-box">
-
-                                <h3>Wi-Fi Details 📶</h3>
-
-                                <div className="form-group">
-                                    <label htmlFor="wifi-name">
-                                        Network Name
-                                    </label>
-
-                                    <input
-                                        id="wifi-name"
-                                        type="text"
-                                        value={wifiName}
-                                        onChange={(e) =>
-                                            setWifiName(e.target.value)
-                                        }
-                                        placeholder="My Wi-Fi"
-                                    />
+                                <div className="type-grid">
+                                    {Object.entries(TYPE_LABELS).map(([key, label]) => (
+                                        <button
+                                            key={key}
+                                            className={`type-button ${
+                                                type === key ? "active" : ""
+                                            }`}
+                                            onClick={() => handleTypeChange(key)}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
                                 </div>
 
-                                <div className="form-group">
-                                    <label htmlFor="wifi-security">
-                                        Security
-                                    </label>
-
-                                    <select
-                                        id="wifi-security"
-                                        value={wifiSecurity}
-                                        onChange={(e) =>
-                                            setWifiSecurity(e.target.value)
-                                        }
-                                    >
-                                        <option value="WPA">
-                                            WPA / WPA2
-                                        </option>
-
-                                        <option value="WEP">
-                                            WEP
-                                        </option>
-
-                                        <option value="nopass">
-                                            No Password
-                                        </option>
-                                    </select>
-                                </div>
-
-                                {wifiSecurity !== "nopass" && (
-                                    <div className="form-group">
-                                        <label htmlFor="wifi-password">
-                                            Password
-                                        </label>
+                                {type === "url" && (
+                                    <div className="field">
+                                        <label htmlFor="url">Website URL</label>
 
                                         <input
-                                            id="wifi-password"
-                                            type="password"
-                                            value={wifiPassword}
-                                            onChange={(e) =>
-                                                setWifiPassword(e.target.value)
-                                            }
-                                            placeholder="Wi-Fi password"
+                                            id="url"
+                                            type="url"
+                                            placeholder="https://example.com"
+                                            value={url}
+                                            onChange={(event) => {
+                                                setUrl(event.target.value);
+                                                setError("");
+                                                setNotice("");
+                                            }}
                                         />
                                     </div>
                                 )}
-                            </div>
-                        )}
 
-                        {error && (
-                            <div className="error-message">
-                                ⚠️ {error}
-                            </div>
-                        )}
+                                {type === "text" && (
+                                    <div className="field">
+                                        <label htmlFor="text">Plain Text</label>
 
-                        <div className="settings-section">
-                            <h3>Quick Presets</h3>
+                                        <textarea
+                                            id="text"
+                                            placeholder="Enter any text you want to encode..."
+                                            value={text}
+                                            onChange={(event) => {
+                                                setText(event.target.value);
+                                                setError("");
+                                                setNotice("");
+                                            }}
+                                        />
+                                    </div>
+                                )}
 
-                            <div className="preset-buttons">
+                                {type === "email" && (
+                                    <>
+                                        <div className="field">
+                                            <label htmlFor="email">Email Address</label>
 
-                                <button
-                                    className="secondary-button"
-                                    onClick={() =>
-                                        applyPreset("classic")
-                                    }
-                                >
-                                    Classic
-                                </button>
+                                            <input
+                                                id="email"
+                                                type="email"
+                                                placeholder="hello@example.com"
+                                                value={email}
+                                                onChange={(event) => {
+                                                    setEmail(event.target.value);
+                                                    setError("");
+                                                    setNotice("");
+                                                }}
+                                            />
+                                        </div>
 
-                                <button
-                                    className="secondary-button"
-                                    onClick={() =>
-                                        applyPreset("dark")
-                                    }
-                                >
-                                    Dark
-                                </button>
+                                        <div className="two-columns">
+                                            <div className="field">
+                                                <label htmlFor="subject">Subject</label>
 
-                                <button
-                                    className="secondary-button"
-                                    onClick={() =>
-                                        applyPreset("contrast")
-                                    }
-                                >
-                                    High Contrast
-                                </button>
+                                                <input
+                                                    id="subject"
+                                                    placeholder="Email subject"
+                                                    value={emailSubject}
+                                                    onChange={(event) => {
+                                                        setEmailSubject(event.target.value);
+                                                        setError("");
+                                                        setNotice("");
+                                                    }}
+                                                />
+                                            </div>
 
+                                            <div className="field">
+                                                <label htmlFor="body">Message</label>
+
+                                                <input
+                                                    id="body"
+                                                    placeholder="Email message"
+                                                    value={emailBody}
+                                                    onChange={(event) => {
+                                                        setEmailBody(event.target.value);
+                                                        setError("");
+                                                        setNotice("");
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+
+                                {type === "phone" && (
+                                    <div className="field">
+                                        <label htmlFor="phone">Phone Number</label>
+
+                                        <input
+                                            id="phone"
+                                            type="tel"
+                                            placeholder="+91 98765 43210"
+                                            value={phone}
+                                            onChange={(event) => {
+                                                setPhone(event.target.value);
+                                                setError("");
+                                                setNotice("");
+                                            }}
+                                        />
+                                    </div>
+                                )}
+
+                                {type === "wifi" && (
+                                    <>
+                                        <div className="field">
+                                            <label htmlFor="ssid">Wi-Fi Network Name</label>
+
+                                            <input
+                                                id="ssid"
+                                                placeholder="My Wi-Fi"
+                                                value={wifiSSID}
+                                                onChange={(event) => {
+                                                    setWifiSSID(event.target.value);
+                                                    setError("");
+                                                    setNotice("");
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div className="two-columns">
+                                            <div className="field">
+                                                <label htmlFor="security">Security</label>
+
+                                                <select
+                                                    id="security"
+                                                    value={wifiSecurity}
+                                                    onChange={(event) => {
+                                                        setWifiSecurity(event.target.value);
+                                                        setError("");
+                                                        setNotice("");
+                                                    }}
+                                                >
+                                                    <option value="WPA">WPA/WPA2/WPA3</option>
+                                                    <option value="WEP">WEP</option>
+                                                    <option value="nopass">No Password</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="field">
+                                                <label htmlFor="wifiPassword">Password</label>
+
+                                                <input
+                                                    id="wifiPassword"
+                                                    type="password"
+                                                    placeholder={
+                                                        wifiSecurity === "nopass"
+                                                            ? "No password"
+                                                            : "Wi-Fi password"
+                                                    }
+                                                    value={wifiPassword}
+                                                    disabled={wifiSecurity === "nopass"}
+                                                    onChange={(event) => {
+                                                        setWifiPassword(event.target.value);
+                                                        setError("");
+                                                        setNotice("");
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <label className="checkbox-row">
+                                            <input
+                                                type="checkbox"
+                                                checked={wifiHidden}
+                                                onChange={(event) =>
+                                                    setWifiHidden(event.target.checked)
+                                                }
+                                            />
+
+                                            Hidden Wi-Fi network
+                                        </label>
+                                    </>
+                                )}
+
+                                <div className="customization">
+                                    <div className="customization-header">
+                                        <h2>Customize</h2>
+
+                                        <span>
+                      {selectedPreset === "Custom"
+                          ? "Custom settings"
+                          : `${selectedPreset} preset`}
+                    </span>
+                                    </div>
+
+                                    <div className="field">
+                                        <label>Presets</label>
+
+                                        <div className="preset-grid">
+                                            {Object.keys(PRESETS).map((name) => (
+                                                <button
+                                                    key={name}
+                                                    className={`preset-button ${
+                                                        selectedPreset === name ? "active" : ""
+                                                    }`}
+                                                    onClick={() => applyPreset(name)}
+                                                >
+                                                    {name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="field">
+                                        <label>QR Size</label>
+
+                                        <div className="range-row">
+                                            <input
+                                                type="range"
+                                                min="160"
+                                                max="500"
+                                                step="10"
+                                                value={settings.size}
+                                                onChange={(event) =>
+                                                    updateSetting(
+                                                        "size",
+                                                        Number(event.target.value)
+                                                    )
+                                                }
+                                            />
+
+                                            <div className="range-value">
+                                                {settings.size}px
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="color-row">
+                                        <div className="color-control">
+                                            <label>
+                                                <span>Foreground</span>
+                                                <span>{settings.fgColor}</span>
+                                            </label>
+
+                                            <input
+                                                type="color"
+                                                value={settings.fgColor}
+                                                onChange={(event) =>
+                                                    updateSetting("fgColor", event.target.value)
+                                                }
+                                            />
+                                        </div>
+
+                                        <div className="color-control">
+                                            <label>
+                                                <span>Background</span>
+                                                <span>{settings.bgColor}</span>
+                                            </label>
+
+                                            <input
+                                                type="color"
+                                                value={settings.bgColor}
+                                                onChange={(event) =>
+                                                    updateSetting("bgColor", event.target.value)
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="two-columns">
+                                        <div className="field">
+                                            <label>Error Correction</label>
+
+                                            <select
+                                                value={settings.level}
+                                                onChange={(event) =>
+                                                    updateSetting("level", event.target.value)
+                                                }
+                                            >
+                                                <option value="L">Low — 7%</option>
+                                                <option value="M">Medium — 15%</option>
+                                                <option value="Q">Quartile — 25%</option>
+                                                <option value="H">High — 30%</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="field">
+                                            <label>Margin / Padding</label>
+
+                                            <div className="range-row">
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="12"
+                                                    step="1"
+                                                    value={settings.margin}
+                                                    onChange={(event) =>
+                                                        updateSetting(
+                                                            "margin",
+                                                            Number(event.target.value)
+                                                        )
+                                                    }
+                                                />
+
+                                                <div className="range-value">
+                                                    {settings.margin}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {contrastWarning && (
+                                        <div className="warning-box">
+                                            ⚠️ <strong>Scan reliability warning:</strong>{" "}
+                                            {contrastWarning}
+                                        </div>
+                                    )}
+
+                                    {error && <div className="error-box">❌ {error}</div>}
+
+                                    {notice && !error && (
+                                        <div className="success-box">✓ {notice}</div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        <div className="settings-section">
+                        <aside>
+                            <div className="card preview-card">
+                                <h2>Live Preview</h2>
 
-                            <h3>Customize QR Code</h3>
+                                <p className="card-subtitle">
+                                    Your QR code updates immediately as you type or customize
+                                    it.
+                                </p>
 
-                            <div className="setting-row">
+                                <div className="preview-area">
+                                    {qrIsValid ? (
+                                        <div className="qr-shell">
+                                            <QRCodeCanvas
+                                                ref={qrCanvasRef}
+                                                value={rawValue}
+                                                size={settings.size}
+                                                bgColor={settings.bgColor}
+                                                fgColor={settings.fgColor}
+                                                level={settings.level}
+                                                includeMargin={settings.margin > 0}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="empty-preview">
+                                            <div style={{ fontSize: 48, marginBottom: 10 }}>
+                                                ▦
+                                            </div>
 
-                                <div className="setting-label">
-                                    <span>Size</span>
-                                    <strong>{size}px</strong>
+                                            <strong>Your QR preview will appear here</strong>
+
+                                            <div style={{ marginTop: 8 }}>
+                                                Enter valid information to generate a scannable QR
+                                                code.
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
-                                <input
-                                    type="range"
-                                    min="120"
-                                    max="400"
-                                    value={size}
-                                    onChange={(e) =>
-                                        setSize(Number(e.target.value))
-                                    }
-                                />
+                                <div className="preview-meta">
+                  <span>
+                    Type: {TYPE_LABELS[type]}
+                  </span>
 
-                            </div>
-
-                            <div className="color-grid">
-
-                                <div>
-                                    <label htmlFor="foreground">
-                                        Foreground
-                                    </label>
-
-                                    <input
-                                        id="foreground"
-                                        type="color"
-                                        value={foreground}
-                                        onChange={(e) =>
-                                            setForeground(e.target.value)
-                                        }
-                                    />
+                                    <span>
+                    {settings.size} × {settings.size}px
+                  </span>
                                 </div>
 
-                                <div>
-                                    <label htmlFor="background">
-                                        Background
-                                    </label>
+                                <div className="preview-actions">
+                                    <button
+                                        className="primary-button"
+                                        disabled={!qrIsValid}
+                                        onClick={downloadPNG}
+                                    >
+                                        ↓ Download PNG
+                                    </button>
 
-                                    <input
-                                        id="background"
-                                        type="color"
-                                        value={background}
-                                        onChange={(e) =>
-                                            setBackground(e.target.value)
-                                        }
-                                    />
+                                    <button
+                                        className="secondary-button"
+                                        disabled={!qrIsValid}
+                                        onClick={saveToHistory}
+                                    >
+                                        ☆ Save to Recent
+                                    </button>
                                 </div>
 
-                            </div>
-
-                            <div className="setting-row">
-
-                                <div className="setting-label">
-                                    <span>Margin</span>
-                                    <strong>{margin}</strong>
-                                </div>
-
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="10"
-                                    value={margin}
-                                    onChange={(e) =>
-                                        setMargin(Number(e.target.value))
-                                    }
-                                />
-
-                            </div>
-
-                            <div className="form-group">
-
-                                <label htmlFor="error-level">
-                                    Error Correction
-                                </label>
-
-                                <select
-                                    id="error-level"
-                                    value={errorLevel}
-                                    onChange={(e) =>
-                                        setErrorLevel(e.target.value)
-                                    }
+                                <button
+                                    className="secondary-button"
+                                    style={{
+                                        width: "100%",
+                                        marginTop: 10,
+                                    }}
+                                    disabled={!qrIsValid}
+                                    onClick={copyQRText}
                                 >
-                                    <option value="L">
-                                        Low (L)
-                                    </option>
+                                    ⧉ Copy QR Data
+                                </button>
 
-                                    <option value="M">
-                                        Medium (M)
-                                    </option>
+                                <div className="history">
+                                    <div className="history-header">
+                                        <h2>Recent QR Codes</h2>
 
-                                    <option value="Q">
-                                        Quartile (Q)
-                                    </option>
+                                        {history.length > 0 && (
+                                            <button
+                                                className="clear-button"
+                                                onClick={clearHistory}
+                                            >
+                                                Clear all
+                                            </button>
+                                        )}
+                                    </div>
 
-                                    <option value="H">
-                                        High (H)
-                                    </option>
-                                </select>
+                                    {history.length === 0 ? (
+                                        <div
+                                            style={{
+                                                color: "#98a2b3",
+                                                fontSize: 13,
+                                                lineHeight: 1.5,
+                                            }}
+                                        >
+                                            Saved QR codes will appear here and remain available
+                                            after refreshing the page.
+                                        </div>
+                                    ) : (
+                                        <div className="history-list">
+                                            {history.map((item) => (
+                                                <div className="history-item" key={item.id}>
+                                                    <div className="history-info">
+                                                        <div className="history-type">
+                                                            {item.label}
+                                                        </div>
 
+                                                        <div className="history-value">
+                                                            {item.displayValue || item.value}
+                                                        </div>
+
+                                                        <div className="history-date">
+                                                            {item.createdAt}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="history-actions">
+                                                        <button
+                                                            className="small-button"
+                                                            onClick={() => reuseItem(item)}
+                                                        >
+                                                            Reuse
+                                                        </button>
+
+                                                        <button
+                                                            className="small-button"
+                                                            onClick={() => deleteHistoryItem(item.id)}
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-
-                        </div>
-
-                        <button
-                            className="generate-button"
-                            onClick={generateQR}
-                        >
-                            Generate QR Code
-                        </button>
-
+                        </aside>
                     </section>
 
-                    {qrText && (
-                        <section className="result-card">
-
-                            <h2>Your QR Code</h2>
-
-                            <div className="qr-wrapper">
-
-                                <QRCodeCanvas
-                                    value={qrText}
-                                    size={size}
-                                    fgColor={foreground}
-                                    bgColor={background}
-                                    level={errorLevel}
-                                    marginSize={margin}
-                                />
-
-                            </div>
-
-                            <button
-                                className="download-button"
-                                onClick={downloadQR}
-                            >
-                                Download PNG 📥
-                            </button>
-
-                        </section>
-                    )}
-
-                    {history.length > 0 && (
-                        <section className="history-card">
-
-                            <div className="history-header">
-
-                                <div>
-                                    <h2>Recent QR Codes 🕘</h2>
-
-                                    <p>
-                                        Your latest generated QR codes
-                                    </p>
-                                </div>
-
-                                <button
-                                    className="clear-button"
-                                    onClick={clearHistory}
-                                >
-                                    Clear
-                                </button>
-
-                            </div>
-
-                            <div>
-                                {history.map((item) => (
-                                    <div
-                                        className="history-item"
-                                        key={item.id}
-                                    >
-
-                                        <div className="history-icon">
-                                            {getTypeIcon(item.type)}
-                                        </div>
-
-                                        <div className="history-content">
-
-                                            <strong>
-                                                {getTypeName(item.type)}
-                                            </strong>
-
-                                            <p>
-                                                {item.value}
-                                            </p>
-
-                                            <small>
-                                                {item.createdAt}
-                                            </small>
-
-                                        </div>
-
-                                    </div>
-                                ))}
-                            </div>
-
-                        </section>
-                    )}
-
-                    <footer>
-                        Built with React ⚛️
-                    </footer>
-
-                </main>
-            </div>
+                    <div className="footer-note">
+                        Built for the GDG on Campus SRM Technical Recruitment 2026–27
+                        task · Browser-only · No backend required
+                    </div>
+                </div>
+            </main>
         </>
     );
 }
+
 export default App;
