@@ -51,10 +51,10 @@ Create QR codes for URLs, plain text, emails, phone numbers, and Wi-Fi networks,
 
 ![Generated QR Code](screenshots/generated-qr.png)
 
-
 ## 💻 Run Locally
 
 ### 1. Clone the repository
 
 ```bash
 git clone https://github.com/dd8794/gdg-qr-generator.git
+cd gdg-qr-generator
