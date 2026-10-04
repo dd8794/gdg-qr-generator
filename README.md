@@ -1,16 +1,57 @@
-# React + Vite
+# 🚀 QR Code Generator
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A modern, responsive QR Code Generator built with React for the **GDG on Campus SRM Technical Recruitment 2026–27**.
 
-Currently, two official plugins are available:
+Create QR codes for URLs, plain text, emails, phone numbers, and Wi-Fi networks, customize their appearance, download them as PNG images, and keep track of recently generated QR codes.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## ✨ Features
 
-## React Compiler
+- 🔗 Generate QR codes for URLs
+- 📝 Generate QR codes for plain text
+- 📧 Generate QR codes for email addresses
+- 📱 Generate QR codes for phone numbers
+- 📶 Generate QR codes for Wi-Fi networks
+- 🎨 Customize foreground and background colors
+- 📏 Adjust QR code size
+- ↔️ Adjust QR code margin
+- 🛡️ Choose error correction level
+- ⚡ Quick presets:
+    - Classic
+    - Dark
+    - High Contrast
+- 📥 Download QR codes as PNG
+- 🕘 Recent QR code history
+- 💾 History persists using browser localStorage
+- 📱 Responsive design
+- ✅ Input validation
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🛠️ Tech Stack
 
-## Expanding the Oxlint configuration
+- React
+- JavaScript
+- Vite
+- qrcode.react
+- HTML
+- CSS
+- Browser localStorage
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+## 🌐 Live Demo
+
+👉 **[Open the QR Code Generator](https://gdg-qr-generator-alkx.vercel.app/)**
+
+## 📸 Screenshots
+
+### QR Code Generator
+
+_Add your project screenshot here._
+
+### QR Code History
+
+_Add your project screenshot here._
+
+## 💻 Run Locally
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/dd8794/gdg-qr-generator.git
